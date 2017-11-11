@@ -1,0 +1,53 @@
+#!/bin/bash
+# list, extract and replace files in iso, using xorriso
+# Don Mahurin
+
+iso=$1; shift
+op=$1; shift
+if [ -z "$op" ] || [ "$op" != "ls" -a -z "$1" ]; then
+	op=help
+fi
+
+case "$op" in
+get)
+	file="$1"; shift
+	localfile="$1"; shift
+	[ -n "$localfile" ] || localfile="$(basename "$file")"
+	;;
+put)
+	localfile="$1"; shift
+	file="$1"; shift
+	if [ -z "$file" ]; then
+		file="$localfile"
+		localfile="$(basename "$file")"
+	fi
+	;;
+esac
+
+case "$op" in
+ls)
+	dir="$1"; shift
+	if [ -z "$dir" ]; then dir=.; fi
+	xorriso -report_about WARNING -indev "$iso" -find "$dir" -type f 2>/dev/null
+	;;
+get|put)
+	line="$(xorriso -report_about WARNING -indev "$iso" -find . -exec report_lba 2>/dev/null | grep -P " *, *\Q'$file'\E"'$' | sed 's: *, *:,:g')"
+	block_start="$(echo "$line" | cut -d, -f2)"
+	block_size="$(echo "$line" | cut -d, -f3)"
+	if [ -z "$block_size" ]; then echo file missing; exit 1; fi
+	offset="$(($block_start*2048))"
+	size="$(echo "$line" | cut -d, -f4)"
+	if [ "$op" = "get" ]; then
+		dd if="$iso" of="$localfile" bs=1 skip="$offset" count="$size" status=none
+	elif [ "$op" = "put" ]; then
+		dd if="$localfile" of="$iso" bs=1 seek="$offset" count="$size" status=none conv=notrunc
+	fi
+	;;
+*)
+	echo usage: $0 ISO ls
+	echo usage: $0 ISO get FILEPATH LOCALFILE
+	echo usage: $0 ISO get FILEPATH
+	echo usage: $0 ISO put LOCALFILE FILEPATH
+	echo usage: $0 ISO put FILEPATH
+	exit 1
+esac
